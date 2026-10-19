@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Protocol
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 import httpx
@@ -110,3 +111,22 @@ class HttpArticleFetcher:
         if len(response.content) > self.max_bytes:
             raise _fail(ErrorCode.UNSUPPORTED_PAGE, "The article page is unexpectedly large.")
         return response.text
+
+
+class BrowserPageLoader(Protocol):
+    async def page_content(self, url: str) -> str: ...
+
+
+class BrowserArticleFetcher:
+    """Optional one-shot article fetch through the managed local browser."""
+
+    def __init__(self, browser: BrowserPageLoader, *, max_bytes: int = 8 * 1024 * 1024) -> None:
+        self.browser = browser
+        self.max_bytes = max_bytes
+
+    async def fetch(self, url: str) -> str:
+        normalized = normalize_wechat_article_url(url)
+        html = await self.browser.page_content(normalized)
+        if len(html.encode("utf-8")) > self.max_bytes:
+            raise _fail(ErrorCode.UNSUPPORTED_PAGE, "The article page is unexpectedly large.")
+        return html

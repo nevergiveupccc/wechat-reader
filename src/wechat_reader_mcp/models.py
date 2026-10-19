@@ -35,6 +35,7 @@ class ErrorCode(StrEnum):
     NO_DISCOVERY_RESULTS = "no_discovery_results"
     LOGIN_REQUIRED = "login_required"
     LOGIN_EXPIRED = "login_expired"
+    BROWSER_UNAVAILABLE = "browser_unavailable"
     RATE_LIMITED_OR_CAPTCHA = "rate_limited_or_captcha"
     ARTICLE_UNAVAILABLE = "article_unavailable"
     UNSUPPORTED_PAGE = "unsupported_page"
@@ -131,3 +132,10 @@ class ReaderStatus(ReaderModel):
     login_status: str = Field(min_length=1)
     providers: list[DiscoverySource]
     warnings: list[str] = Field(default_factory=list)
+
+
+class LoginStatus(ReaderModel):
+    state: str = Field(min_length=1)
+    authenticated: bool
+    browser_available: bool
+    message: str | None = None
