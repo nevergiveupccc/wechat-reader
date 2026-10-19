@@ -153,6 +153,29 @@ async def test_auto_falls_back_once_on_login_required_and_discloses_source(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure_code",
+    [ErrorCode.NO_DISCOVERY_RESULTS, ErrorCode.RATE_LIMITED_OR_CAPTCHA],
+)
+async def test_auto_falls_back_when_enhanced_source_cannot_supply_results(
+    tmp_path: Path, failure_code: ErrorCode
+) -> None:
+    public = FakeProvider(DiscoverySource.PUBLIC_SEARCH)
+    authenticated = FakeProvider(
+        DiscoverySource.AUTHENTICATED_SEARCH,
+        failure=_exception(failure_code),
+    )
+    service = _service(tmp_path, public=public, authenticated=authenticated)
+
+    page = await service.list_recent_articles("Alpha Lab", mode=DiscoveryMode.AUTO)
+
+    assert authenticated.calls == 1
+    assert public.calls == 1
+    assert page.discovery_source is DiscoverySource.PUBLIC_SEARCH
+    assert page.warning is not None and "fallback" in page.warning.lower()
+
+
+@pytest.mark.asyncio
 async def test_auto_never_falls_back_for_invalid_user_input(tmp_path: Path) -> None:
     public = FakeProvider(DiscoverySource.PUBLIC_SEARCH)
     authenticated = FakeProvider(

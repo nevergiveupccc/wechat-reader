@@ -19,9 +19,10 @@ class FakePage:
 
 
 class FakeContext:
-    def __init__(self, page: FakePage) -> None:
+    def __init__(self, page: FakePage, *, cookies: list[dict[str, str]] | None = None) -> None:
         self.pages = [page]
         self.closed = False
+        self._cookies = cookies or [{"name": "wr_skey", "value": "test-only"}]
 
     async def new_page(self) -> FakePage:
         page = FakePage()
@@ -30,6 +31,10 @@ class FakeContext:
 
     async def close(self) -> None:
         self.closed = True
+
+    async def cookies(self, *urls: str) -> list[dict[str, str]]:
+        assert urls == ("https://weread.qq.com/",)
+        return self._cookies
 
 
 class FakeChromium:
@@ -73,6 +78,7 @@ async def test_login_uses_managed_profile_and_returns_no_secrets(tmp_path: Path)
 
     assert chromium.calls[0]["user_data_dir"] == str(profile)
     assert chromium.calls[0]["headless"] is False
+    assert context.pages[0].visited == ["https://weread.qq.com/"]
     assert status.authenticated is True
     assert context.closed is True
     serialized = str(payload).lower()

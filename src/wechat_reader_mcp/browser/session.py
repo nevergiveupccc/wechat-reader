@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import shutil
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -11,8 +13,8 @@ from typing import Any
 from wechat_reader_mcp.errors import ReaderException
 from wechat_reader_mcp.models import ErrorCode, LoginStatus, ReaderError
 
-_LOGIN_URL = "https://mp.weixin.qq.com/"
-_LOGIN_SUCCESS_SELECTOR = ".weui-desktop-account__nickname, .account-info"
+_LOGIN_URL = "https://weread.qq.com/"
+_LOGIN_COOKIE_NAMES = {"wr_skey", "wr_vid"}
 _SESSION_MARKER = ".wechat-reader-authenticated"
 
 
@@ -80,10 +82,16 @@ class BrowserSessionManager:
                 )
                 page = context.pages[0] if context.pages else await context.new_page()
                 await page.goto(_LOGIN_URL, wait_until="domcontentloaded")
-                await page.wait_for_selector(
-                    _LOGIN_SUCCESS_SELECTOR,
-                    timeout=timeout_seconds * 1000,
-                )
+                deadline = time.monotonic() + timeout_seconds
+                while time.monotonic() < deadline:
+                    cookies = await context.cookies(_LOGIN_URL)
+                    if _LOGIN_COOKIE_NAMES.intersection(
+                        cookie.get("name") for cookie in cookies
+                    ):
+                        break
+                    await asyncio.sleep(0.5)
+                else:
+                    raise TimeoutError("WeRead login was not confirmed.")
                 (self.profile_dir / _SESSION_MARKER).write_text("ok", encoding="utf-8")
                 return LoginStatus(
                     state="authenticated",
