@@ -99,4 +99,26 @@ uv run pytest -v -m "not live"
 uv build
 ```
 
+### 有界在线冒烟测试
+
+默认测试绝不访问实时公众号来源。维护者可以显式提供一个公众号名称和一条自己有权访问的公开文章链接；一次测试最多执行一次名称列表请求（`limit=1`）和一次直接读取：
+
+```text
+WECHAT_READER_RUN_LIVE=1
+WECHAT_READER_LIVE_ACCOUNT=<ACCOUNT_NAME>
+WECHAT_READER_LIVE_ARTICLE_URL=<PUBLIC_ARTICLE_URL>
+uv run pytest tests/test_live_smoke.py -v -m live
+```
+
+### 发布检查表
+
+- [x] Windows 安装脚本与隔离安装后的 `doctor` 已验证。
+- [x] JSON/TOML 客户端模板可解析，离线测试和包构建通过。
+- [ ] 使用维护者提供的公开测试输入运行有界在线测试。
+- [ ] 在 Codex 中确认 `get_reader_status`、直接链接、列标题和单篇选择。
+- [ ] 在 Claude Code 中完成同样的四项客户端检查。
+- [ ] 在 Qoder 中完成同样的四项客户端检查。
+
+客户端检查需要修改各客户端配置并可能发起真实网络请求，因此不由安装脚本静默执行。记录时只保存通过/失败和脱敏后的错误类别。
+
 许可证：MIT。
