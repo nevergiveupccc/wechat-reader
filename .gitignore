@@ -11,6 +11,9 @@ build/
 *.egg-info/
 .superpowers/
 .env
+.env.*
+*.sqlite3
+browser-profile/
 playwright-report/
 test-results/
 

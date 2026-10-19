@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "wechat-reader": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "wechat-reader-mcp", "serve"],
+      "cwd": "."
+    }
+  }
+}

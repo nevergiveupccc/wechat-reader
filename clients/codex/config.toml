@@ -1,0 +1,4 @@
+[mcp_servers."wechat-reader"]
+command = "uv"
+args = ["run", "wechat-reader-mcp", "serve"]
+cwd = "<REPOSITORY_PATH>"
