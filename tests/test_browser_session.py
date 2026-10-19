@@ -2,20 +2,72 @@ from pathlib import Path
 
 import pytest
 
+from wechat_reader_mcp.errors import ReaderException
+from wechat_reader_mcp.models import ErrorCode
+
 
 class FakePage:
-    def __init__(self, html: str = "<html>page</html>") -> None:
+    def __init__(
+        self,
+        html: str = "<html>page</html>",
+        *,
+        final_url: str | None = None,
+    ) -> None:
         self.html = html
+        self.final_url = final_url
+        self.url = "about:blank"
         self.visited: list[str] = []
+        self.network_requests: list[str] = []
+        self.main_frame = object()
+        self._route_handler = None
 
     async def goto(self, url: str, **kwargs: object) -> None:
         self.visited.append(url)
+        targets = [url]
+        if self.final_url is not None and self.final_url != url:
+            targets.append(self.final_url)
+        for target in targets:
+            if self._route_handler is not None:
+                request = FakeRequest(target, self.main_frame)
+                route = FakeRoute(target, self.network_requests)
+                await self._route_handler(route, request)
+                if route.aborted:
+                    raise RuntimeError("navigation was blocked")
+            else:
+                self.network_requests.append(target)
+        self.url = self.final_url or url
+
+    async def route(self, pattern: str, handler: object) -> None:
+        assert pattern == "**/*"
+        self._route_handler = handler
 
     async def wait_for_selector(self, selector: str, **kwargs: object) -> None:
         assert selector
 
     async def content(self) -> str:
         return self.html
+
+
+class FakeRequest:
+    def __init__(self, url: str, frame: object) -> None:
+        self.url = url
+        self.frame = frame
+
+    def is_navigation_request(self) -> bool:
+        return True
+
+
+class FakeRoute:
+    def __init__(self, url: str, requests: list[str]) -> None:
+        self.url = url
+        self.requests = requests
+        self.aborted = False
+
+    async def continue_(self) -> None:
+        self.requests.append(self.url)
+
+    async def abort(self, **kwargs: object) -> None:
+        self.aborted = True
 
 
 class FakeContext:
@@ -121,3 +173,26 @@ async def test_browser_article_fetcher_validates_url_before_navigation(tmp_path:
 
     assert html == "<html>article</html>"
     assert page.visited == ["https://mp.weixin.qq.com/s/browser-article"]
+
+
+@pytest.mark.asyncio
+async def test_browser_article_fetcher_rejects_cross_host_final_url(tmp_path: Path) -> None:
+    from wechat_reader_mcp.browser.session import BrowserSessionManager
+    from wechat_reader_mcp.extraction.fetch import BrowserArticleFetcher
+
+    page = FakePage(
+        "<html>external</html>",
+        final_url="https://example.com/not-wechat",
+    )
+    chromium = FakeChromium(FakeContext(page))
+    factory = lambda: FakePlaywrightManager(FakePlaywright(chromium))
+    manager = BrowserSessionManager(
+        tmp_path / "data" / "browser-profile", playwright_factory=factory
+    )
+
+    with pytest.raises(ReaderException) as caught:
+        await BrowserArticleFetcher(manager).fetch(
+            "https://mp.weixin.qq.com/s/browser-article"
+        )
+    assert caught.value.error.code is ErrorCode.UNSUPPORTED_URL
+    assert "https://example.com/not-wechat" not in page.network_requests

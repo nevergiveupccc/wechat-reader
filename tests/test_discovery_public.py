@@ -1,6 +1,4 @@
 from pathlib import Path
-from urllib.parse import urljoin
-
 import httpx
 import pytest
 
@@ -50,10 +48,11 @@ async def test_public_search_caps_sorts_deduplicates_and_warns() -> None:
     assert len({article.url for article in page.articles}) == 10
     assert all(article.account == "Alpha Lab" for article in page.articles)
     assert all(article.source is DiscoverySource.PUBLIC_SEARCH for article in page.articles)
+    assert all(article.url.startswith("https://mp.weixin.qq.com/") for article in page.articles)
     assert page.is_complete is False
     assert page.warning is not None and "unresolved" in page.warning.lower()
-    unresolved = next(item for item in page.articles if item.title == "Alpha unresolved")
-    assert unresolved.url == urljoin("https://weixin.sogou.com", "/link?url=missing")
+    assert "skipped" in page.warning.lower()
+    assert all(item.title != "Alpha unresolved" for item in page.articles)
 
 
 @pytest.mark.asyncio

@@ -243,7 +243,7 @@ async def test_captcha_failure_does_not_loop_browser_fallback(tmp_path: Path) ->
     assert result.error is not None
     assert result.error.code is ErrorCode.RATE_LIMITED_OR_CAPTCHA
     assert http.calls == 1
-    assert browser.calls == 1
+    assert browser.calls == 0
 
 
 @pytest.mark.asyncio

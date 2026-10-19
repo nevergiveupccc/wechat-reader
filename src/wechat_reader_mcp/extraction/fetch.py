@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Protocol
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 
@@ -63,7 +63,10 @@ class HttpArticleFetcher:
         connect_timeout: float = 5.0,
         read_timeout: float = 15.0,
         max_bytes: int = 8 * 1024 * 1024,
+        max_redirects: int = 5,
     ) -> None:
+        if max_redirects < 0:
+            raise ValueError("max_redirects cannot be negative")
         self.timeout = httpx.Timeout(
             connect=connect_timeout,
             read=read_timeout,
@@ -71,16 +74,35 @@ class HttpArticleFetcher:
             pool=connect_timeout,
         )
         self.max_bytes = max_bytes
+        self.max_redirects = max_redirects
 
     async def fetch(self, url: str) -> str:
         normalized = normalize_wechat_article_url(url)
         try:
             async with httpx.AsyncClient(
                 timeout=self.timeout,
-                follow_redirects=True,
+                follow_redirects=False,
                 headers={"User-Agent": _USER_AGENT},
             ) as client:
-                response = await client.get(normalized)
+                current_url = normalized
+                for redirect_count in range(self.max_redirects + 1):
+                    response = await client.get(current_url)
+                    if not 300 <= response.status_code < 400:
+                        break
+                    location = response.headers.get("location")
+                    if location is None:
+                        raise _fail(
+                            ErrorCode.NETWORK_ERROR,
+                            "WeChat returned a redirect without a destination.",
+                        )
+                    if redirect_count == self.max_redirects:
+                        raise _fail(
+                            ErrorCode.NETWORK_ERROR,
+                            "The article exceeded the redirect limit.",
+                        )
+                    current_url = normalize_wechat_article_url(
+                        urljoin(str(response.url), location)
+                    )
         except httpx.TimeoutException as exc:
             raise _fail(
                 ErrorCode.TIMEOUT,
@@ -114,7 +136,7 @@ class HttpArticleFetcher:
 
 
 class BrowserPageLoader(Protocol):
-    async def page_content(self, url: str) -> str: ...
+    async def article_page_content(self, url: str) -> tuple[str, str]: ...
 
 
 class BrowserArticleFetcher:
@@ -126,7 +148,8 @@ class BrowserArticleFetcher:
 
     async def fetch(self, url: str) -> str:
         normalized = normalize_wechat_article_url(url)
-        html = await self.browser.page_content(normalized)
+        html, final_url = await self.browser.article_page_content(normalized)
+        normalize_wechat_article_url(final_url)
         if len(html.encode("utf-8")) > self.max_bytes:
             raise _fail(ErrorCode.UNSUPPORTED_PAGE, "The article page is unexpectedly large.")
         return html

@@ -109,6 +109,46 @@ async def test_http_fetcher_uses_bounded_redirecting_client() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_http_fetcher_validates_every_redirect_before_following() -> None:
+    from wechat_reader_mcp.extraction.fetch import HttpArticleFetcher
+
+    url = "https://mp.weixin.qq.com/s/redirecting"
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            302,
+            headers={"location": "https://example.com/not-wechat"},
+        )
+    )
+    external = respx.get("https://example.com/not-wechat").mock(
+        return_value=httpx.Response(200, text="must not be fetched")
+    )
+
+    with pytest.raises(ReaderException) as caught:
+        await HttpArticleFetcher().fetch(url)
+    assert caught.value.error.code is ErrorCode.UNSUPPORTED_URL
+    assert external.called is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_http_fetcher_allows_bounded_same_host_article_redirect() -> None:
+    from wechat_reader_mcp.extraction.fetch import HttpArticleFetcher
+
+    start = "https://mp.weixin.qq.com/s/redirecting"
+    final = "https://mp.weixin.qq.com/s/final"
+    respx.get(start).mock(return_value=httpx.Response(302, headers={"location": final}))
+    final_route = respx.get(final).mock(
+        return_value=httpx.Response(200, text="<html>ok</html>")
+    )
+
+    html = await HttpArticleFetcher(max_redirects=2).fetch(start)
+
+    assert html == "<html>ok</html>"
+    assert final_route.called
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_http_fetcher_maps_unavailable_article() -> None:
     from wechat_reader_mcp.extraction.fetch import HttpArticleFetcher
 

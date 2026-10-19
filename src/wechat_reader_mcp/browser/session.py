@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from wechat_reader_mcp.errors import ReaderException
 from wechat_reader_mcp.models import ErrorCode, LoginStatus, ReaderError
@@ -25,6 +26,32 @@ def _browser_error(message: str) -> ReaderException:
             message=message,
             retryable=False,
         )
+    )
+
+
+def _unsafe_navigation_error() -> ReaderException:
+    return ReaderException(
+        ReaderError(
+            code=ErrorCode.UNSUPPORTED_URL,
+            message="The browser blocked a redirect outside WeChat article pages.",
+            retryable=False,
+        )
+    )
+
+
+def _is_wechat_article_navigation(url: str) -> bool:
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except (TypeError, ValueError):
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname == "mp.weixin.qq.com"
+        and parsed.username is None
+        and parsed.password is None
+        and port in (None, 443)
+        and (parsed.path == "/s" or parsed.path.startswith("/s/"))
     )
 
 
@@ -120,6 +147,15 @@ class BrowserSessionManager:
             shutil.rmtree(resolved)
 
     async def page_content(self, url: str) -> str:
+        content, _ = await self._load_page(url, article_only=False)
+        return content
+
+    async def article_page_content(self, url: str) -> tuple[str, str]:
+        return await self._load_page(url, article_only=True)
+
+    async def _load_page(
+        self, url: str, *, article_only: bool
+    ) -> tuple[str, str]:
         context: Any | None = None
         try:
             async with self._playwright_factory() as playwright:
@@ -129,8 +165,31 @@ class BrowserSessionManager:
                     headless=True,
                 )
                 page = context.pages[0] if context.pages else await context.new_page()
-                await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
-                return await page.content()
+                blocked_url: str | None = None
+                if article_only:
+                    async def guard_navigation(route: Any, request: Any) -> None:
+                        nonlocal blocked_url
+                        is_main_navigation = (
+                            request.is_navigation_request()
+                            and request.frame == page.main_frame
+                        )
+                        if (
+                            is_main_navigation
+                            and not _is_wechat_article_navigation(request.url)
+                        ):
+                            blocked_url = request.url
+                            await route.abort(error_code="blockedbyclient")
+                            return
+                        await route.continue_()
+
+                    await page.route("**/*", guard_navigation)
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+                except Exception as exc:
+                    if blocked_url is not None:
+                        raise _unsafe_navigation_error() from exc
+                    raise
+                return await page.content(), page.url
         except ReaderException:
             raise
         except Exception as exc:

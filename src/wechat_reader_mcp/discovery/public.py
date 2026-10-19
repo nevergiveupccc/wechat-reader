@@ -273,17 +273,17 @@ class SogouDiscoveryProvider:
         unresolved = 0
         for item in exact:
             resolved = await self.resolver.resolve(item.url)
-            final_url = resolved or item.url
-            if final_url in seen:
-                continue
-            seen.add(final_url)
             if resolved is None:
                 unresolved += 1
+                continue
+            if resolved in seen:
+                continue
+            seen.add(resolved)
             articles.append(
                 ArticleSummary(
                     index=len(articles) + 1,
                     title=item.title,
-                    url=final_url,
+                    url=resolved,
                     account=item.account,
                     published_at=item.published_at,
                     digest=item.digest,
@@ -295,7 +295,7 @@ class SogouDiscoveryProvider:
 
         warning = "Public search is best-effort and may be incomplete."
         if unresolved:
-            warning += f" {unresolved} result link was unresolved and kept as returned."
+            warning += f" {unresolved} result link was unresolved and skipped."
         return ProviderPage(
             articles=articles,
             next_cursor=_page_to_cursor(page_number + 1) if has_next else None,
